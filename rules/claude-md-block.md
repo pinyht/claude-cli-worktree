@@ -1,12 +1,13 @@
 <!-- claude-worktree-rules:start -->
 ## worktree 并行开发（claude-cli-worktree）
 
-版本：2
+版本：3
 
 - 命令由用户级 Claude Code skills 提供（`~/.claude/skills/worktree-*/SKILL.md`），脚本：`~/.claude/claude-cli-worktree/scripts/worktree-task.py`，状态：`~/.claude-cli-worktree/state/`。
 - 可用命令：`/worktree-new`、`/worktree-list`、`/worktree-info`、`/worktree-current`、`/worktree-status`、`/worktree-switch`、`/worktree-merge`、`/worktree-sync`、`/worktree-take-sql`、`/worktree-push-sql`、`/worktree-end`、`/worktree-help`。
 - 这些命令全部只能由用户手动输入触发。不要自行调用 `worktree-task.py`，也不要用其他方式（直接 git 命令、复制文件、stash 等）复刻这些命令的流程。
-- 主项目目录是可重置的统一调试槽：只用于创建任务、切换预览、合并任务、同步任务、用户手动运行服务验证和用户手动 commit。
+- 主项目目录是可重置的统一调试槽：只用于创建任务、切换预览、合并任务、同步任务、用户手动运行服务验证和提交。
+- 提交规则：不要主动 commit，也不要替用户决定提交时机。用户明确要求提交时，依据 `/worktree-merge` 带出的任务会话记忆和槽里的 `git diff` 写提交信息，执行 `git add -A && git commit`；用户也可能自己手动提交并自己写说明，此时不要重复提交。
 - 任务 worktree 目录用于具体开发，不要在其中启动长期运行的项目服务。
 - 槽里不要为了临时调试修改 tracked 文件；本地覆盖走 `config.local.yml`、`.env` 等已忽略文件，保证槽随时可被 `git reset --hard` + `git clean -fd` 重置。
 - 任务状态保存在本地 `~/.claude-cli-worktree/state/`，不写入业务仓库。

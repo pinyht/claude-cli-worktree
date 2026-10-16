@@ -45,7 +45,7 @@ worktree 并行开发命令：
 4. 需要临时看效果时，回主项目目录执行 `/worktree-switch 任务名`。
 5. 确认任务完成后，回主项目目录执行 `/worktree-merge 任务名`。
 6. 用户手动重启服务或运行验证命令。
-7. 验证通过后用户手动 commit。
+7. 验证通过后让 Claude 提交（它依据合并时带出的任务会话记忆和改动写说明），或你自己手动 commit。
 8. 主项目有新提交后，可执行 `/worktree-sync --all` 带到未完成任务。
 9. 执行 `/worktree-end 任务名` 清理任务。
 10. 如需查看当前会话任务名，执行 `/worktree-current`。

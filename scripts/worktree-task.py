@@ -677,6 +677,138 @@ def cmd_list(_args):
         print(f"  更新时间: {task.get('updated_at')}")
 
 
+def message_texts(entry):
+    content = (entry.get("message") or {}).get("content")
+    if isinstance(content, str):
+        return [content] if content.strip() else []
+    if not isinstance(content, list):
+        return []
+    return [
+        item.get("text", "")
+        for item in content
+        if isinstance(item, dict) and item.get("type") == "text" and item.get("text", "").strip()
+    ]
+
+
+def task_session_memory(task_path, max_prompts=40, max_chars=4000):
+    """从任务 worktree 的 Claude Code 会话记录里提取「任务记忆」。
+
+    只取用户自己输入的原话和最后一条助手总结，不读工具输出。
+    记录位置和格式属于 Claude Code 内部实现，读不到时返回空，由调用方降级处理。
+    """
+    digest = task_path.name.rsplit("-", 1)[-1]
+    projects = Path.home() / ".claude" / "projects"
+    if not digest or not projects.is_dir():
+        return None, [], None
+
+    dirs = [path for path in projects.glob(f"*{digest}") if path.is_dir()]
+    if not dirs:
+        return None, [], None
+    session_dir = max(dirs, key=lambda path: path.stat().st_mtime)
+
+    files = sorted(session_dir.glob("*.jsonl"), key=lambda path: path.stat().st_mtime)[-5:]
+    prompts, summary = [], None
+    for path in files:
+        try:
+            if path.stat().st_size > 64 * 1024 * 1024:
+                continue
+            with path.open(encoding="utf-8", errors="replace") as handle:
+                for line in handle:
+                    if "promptId" in line and '"user"' in line:
+                        try:
+                            entry = json.loads(line)
+                        except ValueError:
+                            continue
+                        if entry.get("type") == "user" and entry.get("promptId"):
+                            prompts.extend(message_texts(entry))
+                    elif '"assistant"' in line:
+                        try:
+                            entry = json.loads(line)
+                        except ValueError:
+                            continue
+                        if entry.get("type") == "assistant":
+                            texts = message_texts(entry)
+                            if texts:
+                                summary = "\n".join(texts)
+        except OSError:
+            continue
+
+    if len(prompts) > max_prompts:
+        prompts = prompts[:2] + ["……（中间省略）"] + prompts[-(max_prompts - 3):]
+
+    trimmed, used = [], 0
+    for text in prompts:
+        if used >= max_chars:
+            trimmed.append("……（后续省略）")
+            break
+        piece = text if len(text) <= 800 else text[:800] + "…"
+        trimmed.append(piece)
+        used += len(piece)
+    if summary and len(summary) > 1500:
+        summary = summary[:1500] + "…"
+    return session_dir, trimmed, summary
+
+
+def print_task_memory(task_path):
+    session_dir, prompts, summary = task_session_memory(task_path)
+    print()
+    if session_dir is None:
+        print("任务会话记忆: 未找到（会话记录可能已清理或任务不在本机开发）。")
+        print("请仅依据槽里的改动生成提交说明。")
+        return
+    print("任务会话记忆（来自任务目录的 Claude Code 会话记录）:")
+    if prompts:
+        print("  你当初的要求:")
+        for text in prompts:
+            for line in text.splitlines():
+                print(f"    {line}")
+    if summary:
+        print("  任务会话最后总结:")
+        for line in summary.splitlines():
+            print(f"    {line}")
+
+
+def task_extra_commits(root, task_path):
+    """返回 (任务分支上主线没有的提交列表, 恢复时应重置到的提交)。
+
+    这些提交 merge/switch 不会搬运，且合并后会被 reset 掉，属于必须拦住的危险状态。
+    """
+    main_head = text(["git", "rev-parse", "HEAD"], root)
+    task_head = text(["git", "rev-parse", "HEAD"], task_path)
+    if task_head == main_head:
+        return [], main_head
+
+    listing = text(["git", "log", "--oneline", f"{main_head}..{task_head}"], task_path)
+    commits = [line for line in listing.splitlines() if line.strip()]
+    if not commits:
+        return [], main_head
+
+    result = run(["git", "merge-base", task_head, main_head], task_path, check=False)
+    base = result.stdout.decode(errors="replace").strip() if result.returncode == 0 else ""
+    return commits, (base or main_head)
+
+
+def require_no_task_commits(root, task_path, force_hint=False):
+    commits, base = task_extra_commits(root, task_path)
+    if not commits:
+        return
+
+    shown = "\n".join(f"  {line}" for line in commits[:10])
+    more = f"\n  ……（共 {len(commits)} 个）" if len(commits) > 10 else ""
+    message = (
+        "任务分支上有主线没有的提交，已停止。\n"
+        "merge/switch 只搬运任务目录里的未提交改动；这些已提交的改动不会被带到主项目目录，"
+        "而且合并后任务 worktree 会被重置到主线，这些提交会变成孤儿。\n\n"
+        f"带不过来的提交:\n{shown}{more}\n\n"
+        "恢复方法（在任务目录执行，改动内容不会丢）:\n"
+        f"  git reset --soft {base}\n"
+        "然后重新执行本命令。"
+    )
+    if force_hint:
+        message += "\n确认这些提交可以放弃时，可用 --force 强制清理。"
+    raise WorktreeError(message)
+
+
 def cmd_merge(args):
     root = require_main_project_dir()
     state = load_state(root)
@@ -685,6 +817,7 @@ def cmd_merge(args):
     if not task_path.exists():
         raise WorktreeError(f"任务目录不存在: {task_path}")
 
+    require_no_task_commits(root, task_path)
     changes = task_changes(task_path)
     if not changes:
         state["preview"] = None
@@ -717,7 +850,10 @@ def cmd_merge(args):
     save_state(root, state)
 
     print("已把任务改动三方合并到主项目目录，主项目未自动 commit。")
-    print("请在主项目目录手动重启服务验证；验证通过后由你手动 commit。")
+    print("请在主项目目录手动重启服务验证。")
+    print_task_memory(task_path)
+    print()
+    print("验证通过后由你决定：可以让 Claude 提交并写说明，也可以自己手动 git commit。")
 
 
 def cmd_sync(args):
@@ -944,6 +1080,7 @@ def switch_to_task(root, state, name):
     if not task_path.exists():
         raise WorktreeError(f"任务目录不存在: {task_path}")
 
+    require_no_task_commits(root, task_path)
     changes = task_changes(task_path)
     reset_main_slot(root, state)
     if not changes:
@@ -1086,6 +1223,8 @@ def cmd_end(args):
     task = get_task(state, name)
     task_path = Path(task["worktree"])
     if task_path.exists():
+        if not args.force:
+            require_no_task_commits(root, task_path, force_hint=True)
         changes = task_changes(task_path)
         if changes and not args.force:
             if task_changes_absorbed_by_main(root, task_path, changes):
