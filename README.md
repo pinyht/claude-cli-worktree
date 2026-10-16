@@ -6,22 +6,6 @@ Claude Code 的 Git worktree 并行开发辅助工具。
 
 **核心模型：主项目目录 = 可重置的统一调试槽。** 任务在独立 worktree 里开发，需要看效果时把任务的**未提交改动**复制进主目录验证，验证通过再合并回主目录并手动 commit——整个流程不需要为了「能调试」而做 WIP 提交，主线历史里也不会出现一堆临时 commit。
 
-## 与 codex-cli-worktree 的关系
-
-本项目和 [codex-cli-worktree](../codex-cli-worktree)（Codex CLI 版）**完全独立**：
-
-| | codex 版 | 本项目 |
-| --- | --- | --- |
-| 命令定义 | `~/.agents/skills/codex-cli-worktree/` | `~/.claude/skills/worktree-*/` |
-| 脚本 | `~/.agents/skills/codex-cli-worktree/scripts/` | `~/.claude/claude-cli-worktree/scripts/` |
-| 任务状态 | `~/.codex-cli-worktree/state/` | `~/.claude-cli-worktree/state/` |
-| 任务 worktree 根 | `../<repo>.worktrees/` | `../<repo>.claude-worktrees/` |
-| 全局规则块 | `~/.codex/AGENTS.md` | `~/.claude/CLAUDE.md` |
-
-两边的任务列表互不可见，互不干扰，可以同时使用；但**同一个任务要由同一个工具管到底**（哪个工具建的任务就用哪个工具 switch/merge/end）。
-
-本版还有一处刻意的行为差异：codex 版在「任务还有未合并改动，停止清理」等路径上是打印提示后以退出码 0 结束，本版统一改为**非零退出码 + stderr**（见「退出码约定」）。
-
 ## 功能
 
 - 创建独立 Git worktree 任务目录。
