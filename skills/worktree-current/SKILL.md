@@ -1,0 +1,17 @@
+---
+name: worktree-current
+description: "查看当前 Claude Code 会话对应的 worktree 任务，或查看主项目目录当前是否处于 switch 预览/主线基线状态。仅在用户输入 /worktree-current 时执行。"
+disable-model-invocation: true
+---
+
+# worktree-current
+
+当用户输入 `/worktree-current` 时使用本命令。
+
+## 执行要求
+
+- 可以在主项目目录或任务 worktree 目录执行。
+- 调用 `python3 "$HOME/.claude/claude-cli-worktree/scripts/worktree-task.py" current`。
+- 不要启动任何项目服务。
+- 如果当前在任务 worktree，向用户说明任务名、主项目目录和任务目录。
+- 如果当前在主项目目录，向用户说明当前是 switch 预览状态、主线基线状态，还是存在未提交改动。
